@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+sqlalchemy>=2.0
+httpx
+pyjwt
+apscheduler
+python-multipart
+scikit-learn
+joblib
+pandas
+numpy
+# optional
+# psycopg2-binary      # PostgreSQL
+# firebase-admin       # push notifications (FCM)
+# pytest               # run the tests
