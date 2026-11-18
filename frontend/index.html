@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="si">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#06152e">
+  <title>FloodAlert LK</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="offlineBanner" hidden></div>
+
+  <div id="app">
+    <div class="brand"><img src="/logo.svg" alt="FloodAlert LK" class="logo"></div>
+
+    <header class="topbar">
+      <div class="titles">
+        <h1>FloodAlert <b>LK</b></h1>
+        <span data-i18n="tagline"></span>
+      </div>
+      <div class="top-actions">
+        <button id="bellBtn" class="icon-btn" aria-label="Alerts" type="button">
+          <svg class="i" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
+          <span id="bellBadge" hidden></span>
+        </button>
+        <label class="lang">
+          <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>
+          <select id="langSel" aria-label="Language">
+            <option value="si">සිංහල</option><option value="ta">தமிழ்</option><option value="en">English</option>
+          </select>
+        </label>
+        <button id="authBtn" class="login-btn" type="button">
+          <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.5 4-6 8-6s7 1.5 8 6"/></svg>
+          <span id="authLabel"></span>
+        </button>
+      </div>
+    </header>
+
+    <nav id="tabs" aria-label="Main">
+      <button data-tab="areas" class="active" type="button">
+        <svg class="i" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg><span data-i18n="dashboard"></span>
+      </button>
+      <button data-tab="report" type="button">
+        <svg class="i" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="M4 16l5-4 4 3 3-2 4 3"/></svg><span data-i18n="reports"></span>
+      </button>
+      <button data-tab="alerts" type="button">
+        <svg class="i" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21a2 2 0 0 0 4 0"/></svg><span data-i18n="alerts"></span>
+      </button>
+      <button data-tab="safe" type="button">
+        <svg class="i" viewBox="0 0 24 24"><path d="M12 21s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg><span data-i18n="safe"></span>
+      </button>
+      <button data-tab="about" type="button">
+        <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg><span data-i18n="about"></span>
+      </button>
+      <button data-tab="settings" type="button">
+        <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg><span data-i18n="settings"></span>
+      </button>
+      <button data-tab="admin" id="adminTabBtn" type="button" hidden>
+        <svg class="i" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg><span data-i18n="admin"></span>
+      </button>
+      <div class="motto" aria-hidden="true">
+        <svg class="palm" viewBox="0 0 180 120" preserveAspectRatio="xMidYMax slice">
+          <defs><linearGradient id="hill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b2f6b"/><stop offset="1" stop-color="#041a3c"/></linearGradient></defs>
+          <path d="M0 120V92c28-10 52-6 80-12s60-8 100-2v42z" fill="url(#hill)"/>
+          <g fill="none" stroke="#020c1f" stroke-linecap="round" stroke-width="4">
+            <path d="M64 96C66 78 72 62 86 44"/>
+            <path d="M86 44C74 38 60 40 50 50M86 44C78 32 66 28 54 32M86 44C94 32 106 28 118 34M86 44C100 40 114 44 122 54M86 44C84 32 88 22 96 17"/>
+          </g>
+          <g fill="none" stroke="#020c1f" stroke-linecap="round" stroke-width="3">
+            <path d="M132 94C133 84 137 76 145 66"/>
+            <path d="M145 66C138 62 130 64 125 70M145 66C140 58 132 56 126 58M145 66C150 58 158 56 164 60M145 66C154 64 162 68 165 74"/>
+          </g>
+        </svg>
+        <span data-i18n="motto"></span>
+      </div>
+    </nav>
+
+    <main id="main">
+      <aside id="panel">
+        <!-- DASHBOARD -->
+        <section id="tab-areas" class="tab active">
+          <div class="card">
+            <div class="pick-row">
+              <svg class="i pin" viewBox="0 0 24 24"><path d="M12 21s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>
+              <select id="areaPick" aria-label="District"></select>
+              <span id="areaBadge" class="badge"></span>
+            </div>
+            <div id="detail"></div>
+          </div>
+          <div class="card">
+            <h3 class="card-title"><svg class="i" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16"/><path d="M7 15l4-4 3 3 5-6"/></svg><span data-i18n="chart_title"></span></h3>
+            <div class="chartbox" id="chartBox"><canvas id="chart"></canvas></div>
+          </div>
+        </section>
+
+        <!-- REPORT -->
+        <section id="tab-report" class="tab">
+          <div class="card">
+            <h3 class="card-title" data-i18n="reports"></h3>
+            <p class="hint" data-i18n="report_intro"></p>
+            <form id="reportForm">
+              <select id="repArea" required></select>
+              <select id="repType"><option value="flood"></option><option value="landslide"></option></select>
+              <textarea id="repDesc" rows="3" maxlength="500" data-i18n-ph="description"></textarea>
+              <label class="file"><span data-i18n="photo"></span><input id="repPhoto" type="file" accept="image/jpeg,image/png,image/webp"></label>
+              <button type="button" id="locBtn" class="ghost" data-i18n="use_location"></button>
+              <button class="primary" type="submit" data-i18n="submit_report"></button>
+            </form>
+          </div>
+        </section>
+
+        <!-- ALERTS -->
+        <section id="tab-alerts" class="tab">
+          <div class="card"><h3 class="card-title" data-i18n="alerts"></h3><div id="alertList" class="list"></div></div>
+        </section>
+
+        <!-- SAFE ZONES -->
+        <section id="tab-safe" class="tab">
+          <div class="card">
+            <h3 class="card-title" data-i18n="safe"></h3>
+            <button id="findSafeBtn" class="primary" type="button" data-i18n="find_safe"></button>
+            <div id="safeList" class="list"></div>
+          </div>
+        </section>
+
+        <!-- ABOUT -->
+        <section id="tab-about" class="tab">
+          <div class="card prose">
+            <h3 class="card-title" data-i18n="about_title"></h3>
+            <p data-i18n="about_text"></p>
+            <p data-i18n="about_demo"></p>
+            <p class="hotline"><svg class="i" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span data-i18n="about_hotline"></span></p>
+            <p class="hint">Rainfall &amp; forecast: Open-Meteo · Maps: OpenStreetMap contributors, CARTO, Esri</p>
+          </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section id="tab-settings" class="tab">
+          <div class="card" id="accountCard">
+            <h3 class="card-title"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.5 4-6 8-6s7 1.5 8 6"/></svg><span data-i18n="account"></span></h3>
+            <div id="accountBody"></div>
+          </div>
+          <div class="card">
+            <h3 class="card-title" data-i18n="subscribe_title"></h3>
+            <form id="subForm">
+              <select id="subArea" required></select>
+              <select id="subChannel">
+                <option value="sms" data-i18n="sms"></option><option value="email" data-i18n="email_ch"></option><option value="push" data-i18n="push"></option>
+              </select>
+              <input id="subContact" required maxlength="150" data-i18n-ph="contact">
+              <select id="subLang"><option value="si">සිංහල</option><option value="ta">தமிழ்</option><option value="en">English</option></select>
+              <button class="primary" type="submit" data-i18n="subscribe"></button>
+            </form>
+            <button id="notifBtn" class="ghost" type="button" data-i18n="enable_notifs"></button>
+          </div>
+          <div class="card">
+            <h3 class="card-title" data-i18n="my_subs"></h3>
+            <div id="mySubs" class="list"></div>
+          </div>
+        </section>
+
+        <!-- ADMIN -->
+        <section id="tab-admin" class="tab">
+          <div class="card">
+            <button id="refreshBtn" class="primary" type="button" data-i18n="refresh_now"></button>
+            <h3 class="card-title" data-i18n="stats"></h3><div id="stats" class="hint"></div>
+          </div>
+          <div class="card">
+            <h3 class="card-title" data-i18n="broadcast"></h3>
+            <form id="bcForm">
+              <select id="bcArea" required></select>
+              <select id="bcLevel"><option>Medium</option><option>High</option><option selected>Critical</option></select>
+              <input id="bcMsg" maxlength="300" data-i18n-ph="message_opt">
+              <button class="primary" type="submit" data-i18n="send"></button>
+            </form>
+          </div>
+          <div class="card">
+            <h3 class="card-title" data-i18n="pending"></h3>
+            <div id="pending" class="list"></div>
+          </div>
+        </section>
+      </aside>
+
+      <div id="mapWrap">
+        <div id="map"></div>
+        <div id="mapMode" role="group" aria-label="Map type">
+          <button id="modeMap" class="active" type="button">
+            <svg class="i" viewBox="0 0 24 24"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14"/></svg><span data-i18n="map_view"></span>
+          </button>
+          <button id="modeSat" type="button">
+            <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg><span data-i18n="satellite"></span>
+          </button>
+        </div>
+        <div id="legend"></div>
+      </div>
+
+      <section id="bottom">
+        <div class="card" id="zoneCard">
+          <h3 class="card-title"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg><span data-i18n="area_zones"></span></h3>
+          <div id="zoneBody"></div>
+        </div>
+
+        <div id="alertBanner" class="banner calm">
+          <div class="b-icon">
+            <svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v5M12 17.5v.5"/></svg>
+          </div>
+          <div class="b-text"><h3 id="bannerTitle"></h3><p id="bannerMsg"></p></div>
+          <div class="b-meta"><span id="bannerIssued"></span><button id="bannerBtn" class="outline" type="button"><span data-i18n="view_details"></span><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+        </div>
+
+        <div id="tilesWrap"><div id="tiles">
+          <div class="tile t-blue"><svg class="i" viewBox="0 0 24 24"><path d="M2 9c2-2 4-2 6 0s4 2 6 0 4-2 6 0M2 15c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/></svg><span data-i18n="districts_monitored"></span><b id="tileTotal">-</b></div>
+          <div class="tile t-green"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg><span data-i18n="safe_areas"></span><b id="tileSafe">-</b></div>
+          <div class="tile t-amber"><svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v5M12 17.5v.5"/></svg><span data-i18n="at_risk"></span><b id="tileRisk">-</b></div>
+          <div class="tile t-red"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg><span id="tileCritLabel"></span><b id="tileCrit">-</b></div>
+        </div></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- LOGIN / REGISTER -->
+  <dialog id="authDlg">
+    <form id="authForm" method="dialog">
+      <h2 id="authTitle"></h2>
+      <input id="auName" data-i18n-ph="name" minlength="2" maxlength="100" hidden>
+      <input id="auEmail" type="email" data-i18n-ph="email" required>
+      <input id="auPass" type="password" data-i18n-ph="password" minlength="8" required autocomplete="current-password">
+      <input id="auPhone" data-i18n-ph="phone" maxlength="30" hidden>
+      <div class="row">
+        <button class="primary" type="submit" id="authSubmit"></button>
+        <button class="ghost" type="button" id="authCancel" aria-label="Close">✕</button>
+      </div>
+      <p class="hint"><span id="authSwitchText"></span> <a href="#" id="authSwitch"></a></p>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
