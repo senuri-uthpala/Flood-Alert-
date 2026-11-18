@@ -1,0 +1,12 @@
+{
+  "name": "FloodAlert LK",
+  "short_name": "FloodAlert",
+  "description": "Community flood & landslide early warning for Sri Lanka",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#06152e",
+  "theme_color": "#06152e",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
