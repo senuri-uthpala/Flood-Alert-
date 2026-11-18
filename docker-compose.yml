@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: floodalert
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-floodalert}
+      POSTGRES_DB: floodalert
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U floodalert"]
+      interval: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://floodalert:${DB_PASSWORD:-floodalert}@db:5432/floodalert
+      UPLOAD_DIR: /data/uploads
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads:/data/uploads
+
+volumes:
+  pgdata:
+  uploads:
