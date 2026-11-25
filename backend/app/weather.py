@@ -45,7 +45,7 @@ def fetch_rainfall_bulk(coords: list[tuple[float, float]]) -> list[Rainfall]:
                 "longitude": ",".join(str(c[1]) for c in coords),
                 "hourly": "precipitation",
                 "past_days": 3,
-                "forecast_days": 2,
+                "forecast_days": 4,
                 "timezone": "Asia/Colombo",
             },
             timeout=20,

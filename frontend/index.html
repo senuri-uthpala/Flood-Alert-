@@ -14,12 +14,19 @@
   <div id="offlineBanner" hidden></div>
 
   <div id="app">
-    <div class="brand"><img src="/logo.svg" alt="FloodAlert LK" class="logo"></div>
+    <div class="brand"><img src="/logo.svg" alt="FloodAlert LK" class="logo"><b>FloodAlert <i>LK</i></b></div>
 
     <header class="topbar">
       <div class="titles">
         <h1>FloodAlert <b>LK</b></h1>
         <span data-i18n="tagline"></span>
+      </div>
+      <div class="live">
+        <span class="dot"></span>
+        <div><b data-i18n="live_updates"></b><small><span data-i18n="last_updated"></span>: <span id="lastUpd">-</span></small></div>
+        <button id="liveRefresh" class="icon-btn" type="button" aria-label="Refresh">
+          <svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4"/></svg>
+        </button>
       </div>
       <div class="top-actions">
         <button id="bellBtn" class="icon-btn" aria-label="Alerts" type="button">
@@ -47,10 +54,13 @@
         <svg class="i" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="M4 16l5-4 4 3 3-2 4 3"/></svg><span data-i18n="reports"></span>
       </button>
       <button data-tab="alerts" type="button">
-        <svg class="i" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21a2 2 0 0 0 4 0"/></svg><span data-i18n="alerts"></span>
+        <svg class="i" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21a2 2 0 0 0 4 0"/></svg><span data-i18n="alerts"></span><em id="navAlertCount" class="navcount" hidden></em>
       </button>
       <button data-tab="safe" type="button">
         <svg class="i" viewBox="0 0 24 24"><path d="M12 21s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg><span data-i18n="safe"></span>
+      </button>
+      <button data-tab="forecast" type="button">
+        <svg class="i" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg><span data-i18n="nav_forecast"></span>
       </button>
       <button data-tab="about" type="button">
         <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg><span data-i18n="about"></span>
@@ -73,6 +83,7 @@
             <path d="M132 94C133 84 137 76 145 66"/>
             <path d="M145 66C138 62 130 64 125 70M145 66C140 58 132 56 126 58M145 66C150 58 158 56 164 60M145 66C154 64 162 68 165 74"/>
           </g>
+          <g class="house"><path d="M60 80l22-16 22 16v18H60z" fill="#031530"/><rect x="72" y="84" width="6" height="7" fill="#ffcf5a"/><rect x="86" y="84" width="6" height="7" fill="#ffcf5a"/></g>
         </svg>
         <span data-i18n="motto"></span>
       </div>
@@ -91,7 +102,7 @@
             <div id="detail"></div>
           </div>
           <div class="card">
-            <h3 class="card-title"><svg class="i" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16"/><path d="M7 15l4-4 3 3 5-6"/></svg><span data-i18n="chart_title"></span></h3>
+            <h3 class="card-title"><svg class="i" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16"/><path d="M7 15l4-4 3 3 5-6"/></svg><span data-i18n="chart_title"></span><span class="chip-sel"><span data-i18n="last72"></span><svg class="i" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span></h3>
             <div class="chartbox" id="chartBox"><canvas id="chart"></canvas></div>
           </div>
         </section>
@@ -110,6 +121,11 @@
               <button class="primary" type="submit" data-i18n="submit_report"></button>
             </form>
           </div>
+          <div class="card">
+            <h3 class="card-title" data-i18n="feed_title"></h3>
+            <select id="feedArea" aria-label="District"></select>
+            <div id="feedList" class="list"></div>
+          </div>
         </section>
 
         <!-- ALERTS -->
@@ -120,9 +136,43 @@
         <!-- SAFE ZONES -->
         <section id="tab-safe" class="tab">
           <div class="card">
+            <h3 class="card-title"><svg class="i" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span data-i18n="emerg_title"></span></h3>
+            <div id="emergList" class="contacts"></div>
+            <div id="emergHosp"></div>
+          </div>
+          <div class="card">
+            <h3 class="card-title"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg><span data-i18n="safe_title"></span></h3>
+            <input id="safeName" maxlength="60" data-i18n-ph="safe_name_ph" autocomplete="name">
+            <label class="check"><input id="safeLoc" type="checkbox"><span data-i18n="safe_incl_loc"></span></label>
+            <div class="share-row">
+              <button id="safeWa" class="primary small" type="button" data-i18n="safe_wa"></button>
+              <button id="safeSms" class="ghost small" type="button" data-i18n="safe_sms"></button>
+              <button id="safeShare" class="ghost small" type="button" data-i18n="safe_share"></button>
+              <button id="safeCopy" class="ghost small" type="button" data-i18n="safe_copy"></button>
+            </div>
+          </div>
+          <div class="card">
             <h3 class="card-title" data-i18n="safe"></h3>
             <button id="findSafeBtn" class="primary" type="button" data-i18n="find_safe"></button>
             <div id="safeList" class="list"></div>
+          </div>
+        </section>
+
+        <!-- FORECAST -->
+        <section id="tab-forecast" class="tab">
+          <div class="card">
+            <h3 class="card-title" data-i18n="fc_title"></h3>
+            <div class="cmp-row">
+              <select id="fcA" aria-label="District A"></select>
+              <span class="vs" data-i18n="fc_vs"></span>
+              <select id="fcB" aria-label="District B"></select>
+            </div>
+            <div class="chartbox fcbox"><canvas id="fcChart"></canvas></div>
+            <div id="fcDays"></div>
+          </div>
+          <div class="card">
+            <h3 class="card-title" data-i18n="fc_top"></h3>
+            <div id="fcTop" class="list"></div>
           </div>
         </section>
 
@@ -133,7 +183,7 @@
             <p data-i18n="about_text"></p>
             <p data-i18n="about_demo"></p>
             <p class="hotline"><svg class="i" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span data-i18n="about_hotline"></span></p>
-            <p class="hint">Rainfall &amp; forecast: Open-Meteo · Maps: OpenStreetMap contributors, CARTO, Esri</p>
+            <p class="hint">Rainfall &amp; forecast: Open-Meteo · Maps: OpenStreetMap contributors, Esri · District boundaries: geoBoundaries (CC BY 4.0)</p>
           </div>
         </section>
 
@@ -152,6 +202,7 @@
               </select>
               <input id="subContact" required maxlength="150" data-i18n-ph="contact">
               <select id="subLang"><option value="si">සිංහල</option><option value="ta">தமிழ்</option><option value="en">English</option></select>
+              <p id="chanNote" class="hint"></p>
               <button class="primary" type="submit" data-i18n="subscribe"></button>
             </form>
             <button id="notifBtn" class="ghost" type="button" data-i18n="enable_notifs"></button>
@@ -185,6 +236,7 @@
       </aside>
 
       <div id="mapWrap">
+        <div class="map-head"><svg class="i" viewBox="0 0 24 24"><path d="M12 21s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg><span data-i18n="map_title"></span></div>
         <div id="map"></div>
         <div id="mapMode" role="group" aria-label="Map type">
           <button id="modeMap" class="active" type="button">

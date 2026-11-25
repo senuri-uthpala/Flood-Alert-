@@ -1,10 +1,10 @@
-__pycache__/
+﻿__pycache__/
 *.pyc
-venv/
 .venv/
+venv/
+*.db
+*.sqlite3
 .env
-backend/.secret_key
-backend/*.db
 backend/uploads/*
-!backend/uploads/.gitkeep
 .pytest_cache/
+node_modules/

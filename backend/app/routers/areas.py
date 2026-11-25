@@ -38,6 +38,13 @@ def area_history(area_id: int, hours: int = Query(72, ge=1, le=720), db: Session
     return rows
 
 
+@router.get("/forecast")
+def forecast():
+    """Next-3-day rain and projected risk for every district (filled by the latest refresh)."""
+    from ..services import FORECASTS
+    return {str(k): v for k, v in FORECASTS.items()}
+
+
 @router.get("/areas/{area_id}/safe-zones", response_model=list[SafeZoneOut])
 def area_safe_zones(area_id: int, db: Session = Depends(get_db)):
     area = db.get(Area, area_id)

@@ -109,3 +109,9 @@ Web Push (VAPID) instead of polling · evacuation routing with OSRM · historica
 | Risk score | Our rule-based formula (see `app/risk.py`) - not an official forecast |
 
 Not real / still estimates: the per-district `terrain_risk` values in `app/seed.py` (replace with NBRO hazard-zone data) and the optional ML model (synthetic training data, disabled unless `ENABLE_ML_DEMO=1`). Safe zones are public buildings, not an official list of designated evacuation centres - confirm with the DMC (117).
+
+## Features added in this version
+- **Forecast tab**: next 3 days of rain and projected risk per district (from Open-Meteo hourly data), compare two districts side by side, and a top-5 "highest risk" list. API: `GET /api/forecast`.
+- **Emergency contacts** (Safe Zones tab): tap-to-call DMC 117, Police 119, Fire & Rescue 110, Suwa Seriya ambulance 1990, Government Information Centre 1919, plus the nearest hospital in the selected district.
+- **"I am safe" message**: WhatsApp / SMS / system share / copy, in the current UI language, optionally with a map link to your location. Every alert also has a Share button.
+- **Community feed** (Reports tab): verified citizen reports with photos, filter by district, tap to fly to the spot on the map.

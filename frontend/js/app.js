@@ -15,7 +15,7 @@ const state = {
   lang: ls.get("lang", "si"),
   token: ls.get("token"),
   user: (() => { try { return JSON.parse(ls.get("user") || "null"); } catch { return null; } })(),
-  areas: [], selected: null, history: [], zones: [], nearest: null,
+  areas: [], reports: [], forecast: {}, fcChart: null, selected: null, history: [], zones: [], nearest: null,
   alerts: [], lastAlertId: 0, seenAlertId: Number(ls.get("seenAlert", 0)) || 0,
   subs: [], geo: null, chart: null, authMode: "login", mapMode: ls.get("mapMode", "map"), tab: "areas",
 };
@@ -49,6 +49,7 @@ const ICON = {
   shield: svg('<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>'),
   warn: svg('<path d="M12 3 2 20h20z"/><path d="M12 10v5M12 17.5v.5"/>'),
   alert: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/>'),
+  phone: svg('<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>'),
   arrow: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
 };
 const BUILDING = `<svg viewBox="0 0 104 78" aria-hidden="true"><defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2d77d6"/><stop offset="1" stop-color="#a9d3f7"/></linearGradient></defs>
@@ -79,7 +80,8 @@ async function api(path, { method = "GET", json, form } = {}) {
 const guard = (fn) => async (...a) => { try { return await fn(...a); } catch (e) { toast(e.message || t("error"), true); } };
 
 // ---------------------------------------------------------------- map
-let map, areaLayer, reportLayer, safeLayer;
+let map, distLayer, maskLayer, selLayer, areaLayer, reportLayer, safeLayer, zoneLayer;
+const districtShapes = {};   // name -> GeoJSON feature (real district boundaries)
 const tileLayers = {};
 
 function initMap() {
@@ -92,9 +94,13 @@ function initMap() {
   tileLayers.sat = L.tileLayer(esri + "World_Imagery/MapServer/tile/{z}/{y}/{x}",
     { maxZoom: 18, attribution: "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community" });
   tileLayers.labels = L.tileLayer(esri + "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 18 });
+  distLayer = L.layerGroup().addTo(map);   // thin outlines of every district (clickable)
+  maskLayer = L.layerGroup().addTo(map);   // dims everything except the selected district
+  selLayer = L.layerGroup().addTo(map);    // outline of the selected district
   areaLayer = L.layerGroup().addTo(map);
   reportLayer = L.layerGroup().addTo(map);
   safeLayer = L.layerGroup().addTo(map);
+  zoneLayer = L.layerGroup();
   const SL = [[5.8, 79.4], [9.95, 82.0]];
   map.fitBounds(SL, { padding: [10, 10] });
   // the map's box is sized by CSS grid after load; re-measure and re-fit so Sri Lanka fills it
@@ -104,7 +110,7 @@ function initMap() {
     if (!fitted && $("map").clientHeight > 100) { fitted = true; map.fitBounds(SL, { padding: [10, 10] }); }
   }).observe($("map"));
   const labelsByZoom = () => map.getContainer().classList.toggle("labels-off", map.getZoom() < 8);
-  map.on("zoomend", labelsByZoom);
+  map.on("zoomend", () => { labelsByZoom(); renderMapAreas(); syncZoneLayer(); });
   labelsByZoom();
 }
 
@@ -125,20 +131,75 @@ function renderLegend() {
     LEVELS.map((l) => `<span><i style="background:${COLORS[l]};color:${COLORS[l]}"></i>${esc(t(l))}</span>`).join("");
 }
 
+async function loadDistricts() {
+  try {
+    const gj = await (await fetch("/data/districts.geojson")).json();
+    gj.features.forEach((f) => { districtShapes[f.properties.name] = f; });
+    L.geoJSON(gj, {
+      style: { color: "#8fb8ff", weight: 1, opacity: 0.28, fillColor: "#000", fillOpacity: 0 },
+      attribution: "District boundaries © geoBoundaries (CC BY 4.0)",
+      onEachFeature: (f, layer) => {
+        layer.on("click", () => { const a = state.areas.find((x) => x.name === f.properties.name); if (a) selectArea(a.id); });
+        layer.bindTooltip(esc(f.properties.name), { sticky: true, className: "area-hover" });
+      },
+    }).addTo(distLayer);
+    drawSelection();
+  } catch { /* boundaries are optional - the circles still work */ }
+}
+
+// cut the selected district out of the map: everything else is dimmed, the district gets a bright outline
+function drawSelection() {
+  if (!map || !maskLayer) return null;
+  maskLayer.clearLayers(); selLayer.clearLayers();
+  const a = selArea(), f = a && districtShapes[a.name];
+  if (!f) return null;
+  const polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates;
+  const holes = polys.map((p) => p[0].map(([lng, lat]) => [lat, lng]));
+  L.polygon([[[-85, -180], [-85, 180], [85, 180], [85, -180]], ...holes],
+    { stroke: false, fillColor: "#020a1c", fillOpacity: 0.62, interactive: false, className: "district-mask" }).addTo(maskLayer);
+  const outline = L.geoJSON(f, { style: { color: COLORS[a.risk_level], weight: 3, fillColor: COLORS[a.risk_level], fillOpacity: 0.08 }, interactive: false }).addTo(selLayer);
+  return outline.getBounds();
+}
+
+const ZONE_COLORS = { shelter: "#22c55e", school: "#38bdf8", hospital: "#f43f5e", temple: "#f59e0b" };
+const ZOOMED_IN = 9;   // from this zoom on the map focuses on the selected district
+
 function renderMapAreas() {
   if (!areaLayer) return;
   areaLayer.clearLayers();
+  const zoomedIn = map.getZoom() >= ZOOMED_IN;
   state.areas.forEach((a) => {
     const c = COLORS[a.risk_level], sel = a.id === state.selected;
+    const quiet = zoomedIn && !sel;   // other districts fade into the background when you are looking at one
     const ring = L.circle([a.lat, a.lng], {
-      radius: 9000 + a.risk_score * 160, color: c, weight: sel ? 3 : 1.5, opacity: 0.9, fillColor: c,
-      fillOpacity: sel ? 0.35 : 0.22, className: "area-ring" + (sel ? " sel" : ""),
+      radius: quiet ? 2500 : zoomedIn ? 7000 : 9000 + a.risk_score * 160,
+      color: c, weight: sel ? 3 : quiet ? 1 : 1.5, opacity: quiet ? 0.45 : 0.9, fillColor: c,
+      fillOpacity: sel ? 0.3 : quiet ? 0.05 : 0.22, className: "area-ring" + (sel ? " sel" : ""),
     }).addTo(areaLayer);
-    const dot = L.circleMarker([a.lat, a.lng], { radius: 5, color: "#fff", weight: 1.5, fillColor: c, fillOpacity: 1 }).addTo(areaLayer);
+    const dot = L.circleMarker([a.lat, a.lng], { radius: quiet ? 3 : 5, color: "#fff", weight: quiet ? 1 : 1.5, fillColor: c, fillOpacity: 1 }).addTo(areaLayer);
     ring.bindTooltip(`${esc(a.name)} · ${esc(t("risk_" + a.risk_level))} (${a.risk_score})`, { sticky: true, className: "area-hover" });
-    dot.bindTooltip(esc(a.name), { permanent: true, direction: "bottom", offset: [0, 6], className: `area-label lv-${a.risk_level}${sel ? " sel" : ""}` });
+    dot.bindTooltip(esc(a.name), { permanent: !quiet, direction: "bottom", offset: [0, quiet ? 4 : 6], className: `area-label lv-${a.risk_level}${sel ? " sel" : ""}` });
     [ring, dot].forEach((l) => l.on("click", () => selectArea(a.id)));
   });
+}
+
+// the selected district's real safe places (hospitals, schools, ...) - only when zoomed in
+function drawZoneMarkers() {
+  if (!zoneLayer) return;
+  zoneLayer.clearLayers();
+  state.zones.forEach((z) => {
+    const col = ZONE_COLORS[z.kind] || "#22c55e";
+    L.circleMarker([z.lat, z.lng], { radius: 7, color: "#fff", weight: 1.5, fillColor: col, fillOpacity: 1 }).addTo(zoneLayer)
+      .bindTooltip(`${esc(z.name)} · ${esc(kindLabel(z.kind))}`, { direction: "top", offset: [0, -6], className: "area-hover" })
+      .bindPopup(`<b>${esc(z.name)}</b><br>${esc(kindLabel(z.kind))}${z.is_sample ? " · " + esc(t("sample")) : ""}<br><a href="${esc(directionsUrl(z))}" target="_blank" rel="noopener">${esc(t("directions"))} ↗</a>`);
+  });
+  syncZoneLayer();
+}
+function syncZoneLayer() {
+  if (!zoneLayer || !map) return;
+  const show = map.getZoom() >= ZOOMED_IN;
+  if (show && !map.hasLayer(zoneLayer)) zoneLayer.addTo(map);
+  if (!show && map.hasLayer(zoneLayer)) map.removeLayer(zoneLayer);
 }
 
 // ---------------------------------------------------------------- language / auth chrome
@@ -159,6 +220,7 @@ function applyLang() {
   renderLegend();
   renderAuthBtn();
   renderAuthDialog();
+  chanNote();
 }
 
 function renderAuthBtn() {
@@ -226,11 +288,17 @@ function fillSelects() {
   $("areaPick").innerHTML = sorted.map((a) => `<option value="${a.id}">${esc(a.name)} ${esc(t("district"))}</option>`).join("");
   if (state.selected != null) $("areaPick").value = state.selected;
   const plain = sorted.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("");
-  for (const id of ["repArea", "subArea", "bcArea"]) {
+  for (const id of ["repArea", "subArea", "bcArea", "fcA"]) {
     const el = $(id), prev = el.value;
     el.innerHTML = plain;
     if (prev) el.value = prev;
   }
+  const prevB = $("fcB").value, prevF = $("feedArea").value;
+  $("fcB").innerHTML = `<option value="">${esc(t("fc_none"))}</option>` + plain;
+  $("fcB").value = prevB;
+  $("feedArea").innerHTML = `<option value="">${esc(t("feed_all"))}</option>` + plain;
+  $("feedArea").value = prevF;
+  if (!$("fcA").value && state.selected != null) $("fcA").value = state.selected;
 }
 
 function renderTiles() {
@@ -247,24 +315,27 @@ function renderAreaBadge() {
   b.textContent = a ? t("risk_" + a.risk_level) : "";
 }
 
-const metric = (icon, value, unit, label) =>
-  `<div class="metric"><div class="mi">${ICON[icon]}</div><div><b>${value}${unit ? `<small> ${esc(unit)}</small>` : ""}</b><span>${esc(label)}</span></div></div>`;
+const metric = (cls, icon, value, unit, label, extra = "") =>
+  `<div class="metric ${cls}"><div class="mi">${ICON[icon]}</div><b>${value}${unit ? `<small> ${esc(unit)}</small>` : ""}</b><span>${esc(label)}${extra}</span></div>`;
 
 function renderDetail() {
   const a = selArea();
   if (!a) { $("detail").innerHTML = ""; return; }
   const last = state.history[state.history.length - 1];
+  const prev = state.history.length > 1 ? state.history[state.history.length - 2] : null;
   const v = (x) => (last ? x : "-");
-  const src = last ? (last.source === "mock" ? t("mock_data") : t("live_data")) : "";
+  const up = !prev || a.risk_score >= prev.risk_score;
+  const trend = `<svg class="i trend ${up ? "up" : "down"}" viewBox="0 0 24 24"><path d="${up ? "M3 17l6-6 4 4 8-8M15 7h6v6" : "M3 7l6 6 4-4 8 8M15 17h6v-6"}"/></svg>`;
   $("detail").innerHTML = `
-    <div class="updated">${a.updated_at ? esc(t("updated")) + ": <b>" + esc(fmtTime(a.updated_at)) + "</b>" : ""}${src ? " | " + esc(src) : ""}</div>
     <div class="metrics">
-      ${metric("waves", a.risk_score, "/ 100", t("score"))}
-      ${metric("rain", v(last && last.rainfall_24h), t("mm"), t("rain24"))}
-      ${metric("drop", v(last && last.rainfall_72h), t("mm"), t("rain72"))}
-      ${metric("bars", v(last && last.forecast_24h), t("mm"), t("forecast"))}
+      ${metric("m-blue", "waves", a.risk_score, "/ 100", t("score"), trend)}
+      ${metric("m-sky", "rain", v(last && last.rainfall_24h), t("mm"), t("rain24"))}
+      ${metric("m-green", "drop", v(last && last.rainfall_72h), t("mm"), t("rain72"))}
+      ${metric("m-purple", "bars", v(last && last.forecast_24h), t("mm"), t("forecast"))}
     </div>
     ${a.ml_probability != null ? `<div class="ml"><span class="chip">AI</span>${esc(t("ml_prob"))}: <b>${Math.round(a.ml_probability * 100)}%</b></div>` : ""}`;
+  const times = state.areas.map((x) => x.updated_at).filter(Boolean).sort();
+  $("lastUpd").textContent = times.length ? fmtTime(times[times.length - 1]) : "-";
 }
 
 function drawChart(rows) {
@@ -314,14 +385,20 @@ const selectArea = guard(async (id, fly = true) => {
   if (fly && state.tab !== "areas") showTab("areas");
   renderAreaBadge();
   renderMapAreas();
-  if (fly && map) map.flyTo([a.lat, a.lng], 9, { duration: 0.8 });
+  const bounds = drawSelection();
+  if (fly && map) {
+    if (bounds && bounds.isValid()) map.flyToBounds(bounds, { padding: [30, 30], maxZoom: 11, duration: 0.8 });
+    else map.flyTo([a.lat, a.lng], 10, { duration: 0.8 });
+  }
   const [history, zones] = await Promise.all([
     api(`/areas/${id}/history?hours=72`).catch(() => []),
     api(`/areas/${id}/safe-zones`).catch(() => []),
   ]);
   if (state.selected !== id) return;  // the user picked another district meanwhile
   state.history = history; state.zones = zones;
-  renderDetail(); drawChart(history); renderZoneCard(); renderSafeList(); renderBanner();
+  renderDetail(); drawChart(history); renderZoneCard(); renderSafeList(); renderBanner(); renderEmerg(); drawZoneMarkers();
+  $("fcA").value = id;
+  if (state.tab === "forecast") renderForecast();
 });
 
 // ---------------------------------------------------------------- safe zones
@@ -383,7 +460,8 @@ const findSafe = guard(async () => {
 function alertHtml(a) {
   return `<div class="item"><div class="name">${esc(a.area_name)} <span class="badge ${a.level}">${esc(t("risk_" + a.level))}</span>
     ${a.manual ? `<span class="tag">${esc(t("manual_alert"))}</span>` : ""}</div>
-    <div>${esc(a["message_" + state.lang])}</div><div class="sub">${esc(fmtTime(a.sent_at))}</div></div>`;
+    <div>${esc(a["message_" + state.lang])}</div><div class="sub">${esc(fmtTime(a.sent_at))}</div>
+    <button class="ghost small" type="button" data-act="sharealert" data-id="${a.id}" style="margin-top:6px">${esc(t("share_alert"))}</button></div>`;
 }
 function renderAlerts() {
   $("alertList").innerHTML = state.alerts.length ? state.alerts.map(alertHtml).join("") : `<p class="hint">${esc(t("no_alerts"))}</p>`;
@@ -409,6 +487,9 @@ function renderBanner() {
 function renderBell() {
   const dayAgo = Date.now() - 24 * 3600 * 1000;
   const n = state.alerts.filter((a) => a.id > state.seenAlertId && new Date(a.sent_at + "Z").getTime() > dayAgo).length;
+  const day = state.alerts.filter((a) => new Date(a.sent_at + "Z").getTime() > dayAgo).length;
+  $("navAlertCount").hidden = day === 0;
+  $("navAlertCount").textContent = day > 9 ? "9+" : String(day);
   $("bellBadge").hidden = n === 0;
   $("bellBadge").textContent = n > 9 ? "9+" : String(n);
 }
@@ -448,6 +529,8 @@ async function pollAlerts() {
 const loadReports = guard(async () => {
   if (!reportLayer) return;
   const rows = await api("/reports?limit=100");
+  state.reports = rows;
+  renderFeed();
   reportLayer.clearLayers();
   rows.filter((r) => r.lat != null).forEach((r) => {
     L.circleMarker([r.lat, r.lng], { radius: 6, color: "#e9d5ff", weight: 1.5, fillColor: "#a855d6", fillOpacity: 0.95 }).addTo(reportLayer)
@@ -455,6 +538,94 @@ const loadReports = guard(async () => {
         (r.photo_url ? `<br><img src="${esc(r.photo_url)}" alt="" style="max-width:180px;margin-top:4px;border-radius:6px">` : ""));
   });
 });
+
+function renderFeed() {
+  const sel = $("feedArea").value;
+  const rows = state.reports.filter((r) => !sel || String(r.area_id) === sel);
+  $("feedList").innerHTML = rows.length ? rows.map((r) => `
+    <div class="item feed">
+      ${r.photo_url ? `<img src="${esc(r.photo_url)}" alt="" loading="lazy">` : `<div class="ph">${ICON.warn}</div>`}
+      <div><div class="name">${esc(r.type === "flood" ? t("flood") : t("landslide"))} · ${esc(r.area_name)} <span class="tag blue">${esc(t("feed_verified"))}</span></div>
+        ${r.description ? `<div>${esc(r.description)}</div>` : ""}<div class="sub">${esc(fmtTime(r.created_at))}</div>
+        ${r.lat != null ? `<button class="ghost small go" type="button" data-act="feedgo" data-id="${r.id}">${esc(t("feed_show"))}</button>` : ""}</div>
+    </div>`).join("") : `<p class="hint">${esc(t("feed_empty"))}</p>`;
+}
+
+// ---------------------------------------------------------------- emergency contacts, "I'm safe", sharing
+const EMERG = [["117", "emerg_dmc"], ["119", "emerg_police"], ["110", "emerg_fire"], ["1990", "emerg_amb"], ["1919", "emerg_gov"]];
+function renderEmerg() {
+  $("emergList").innerHTML = EMERG.map(([n, k]) =>
+    `<a class="contact" href="tel:${n}"><span>${esc(t(k))}</span><b>${ICON.phone} ${n}</b></a>`).join("");
+  const h = state.zones.find((z) => z.kind === "hospital");
+  const tel = h && h.phone ? h.phone.replace(/[^+\d]/g, "") : "";
+  $("emergHosp").innerHTML = h ? `<div class="hint">${esc(t("emerg_hosp"))}</div><div class="item"><div class="name">${esc(h.name)}</div>
+    <div class="sub">${tel ? `<a href="tel:${esc(tel)}">${esc(h.phone)}</a> · ` : ""}<a href="${esc(directionsUrl(h))}" target="_blank" rel="noopener">${esc(t("directions"))} ↗</a></div></div>` : "";
+}
+
+function safeMessage(loc) {
+  const a = selArea();
+  const name = $("safeName").value.trim() || (state.user && state.user.name) || "";
+  const time = new Date().toLocaleString(localeFor(), { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" });
+  let m = t("safe_msg");
+  if (!name) m = m.replace("{name}, ", "");
+  return m.replace("{name}", name).replace("{area}", a ? a.name : "").replace("{time}", time)
+    .replace("{loc}", loc ? loc + " " : "").replace(/\s+/g, " ").trim();
+}
+async function composeSafe() {
+  let loc = "";
+  if ($("safeLoc").checked) {
+    try { const g = await getPosition(); loc = `https://www.openstreetmap.org/?mlat=${g.lat}&mlon=${g.lng}#map=16/${g.lat}/${g.lng}`; }
+    catch (e) { toast(e.message, true); }
+  }
+  return safeMessage(loc);
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast(t("copied")); }
+  catch { window.prompt("", text); }
+}
+async function shareText(text) {
+  if (navigator.share) { try { await navigator.share({ text }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
+  window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank", "noopener");
+}
+
+// ---------------------------------------------------------------- 3-day forecast + compare
+const loadForecast = guard(async () => { state.forecast = await api("/forecast"); renderForecast(); });
+function dayLabel(iso, i) {
+  if (i === 0) return t("fc_today");
+  if (i === 1) return t("fc_tomorrow");
+  return new Date(iso + "T00:00:00").toLocaleDateString(localeFor(), { weekday: "short", day: "numeric", month: "short" });
+}
+function renderForecast() {
+  const ids = [$("fcA").value, $("fcB").value].filter(Boolean);
+  const data = ids.map((id) => ({ a: state.areas.find((x) => String(x.id) === id), days: state.forecast[id] })).filter((d) => d.a && d.days && d.days.length);
+  if (state.fcChart) { state.fcChart.destroy(); state.fcChart = null; }
+  if (!data.length) {
+    $("fcDays").innerHTML = `<p class="hint">${esc(t("fc_empty"))}</p>`;
+  } else {
+    $("fcDays").innerHTML = data.map((d) => `<div class="fchead">${esc(d.a.name)}</div>` + d.days.map((x, i) => `
+      <div class="fcday"><span class="d">${esc(dayLabel(x.date, i))}</span><b>${x.rain_mm} ${esc(t("mm"))}</b>
+        <span class="badge ${x.risk_level}">${esc(t("risk_" + x.risk_level))}</span></div>`).join("")).join("");
+    if (typeof Chart !== "undefined") {
+      Chart.defaults.color = "#9dbbe6";
+      const colors = ["#3da5ff", "#f5c518"];
+      state.fcChart = new Chart($("fcChart"), {
+        type: "bar",
+        data: { labels: data[0].days.map((x, i) => dayLabel(x.date, i)),
+          datasets: data.map((d, i) => ({ label: d.a.name, data: d.days.map((x) => x.rain_mm), backgroundColor: colors[i], borderRadius: 6 })) },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { usePointStyle: true, boxWidth: 8, font: { size: 11 } } } },
+          scales: { x: { grid: { display: false } }, y: { beginAtZero: true, title: { display: true, text: t("fc_rain") }, grid: { color: "rgba(120,170,255,.13)" } } } },
+      });
+    }
+  }
+  const ranked = Object.entries(state.forecast).map(([id, days]) => {
+    const peakIdx = days.reduce((b, x, i) => (x.risk_score > days[b].risk_score ? i : b), 0);
+    return { a: state.areas.find((x) => String(x.id) === id), peak: days[peakIdx], i: peakIdx };
+  }).filter((r) => r.a && r.peak).sort((x, y) => y.peak.risk_score - x.peak.risk_score).slice(0, 5);
+  $("fcTop").innerHTML = ranked.map((r) => `<div class="item row-between"><div><div class="name">${esc(r.a.name)}</div>
+      <div class="sub">${esc(t("fc_peak"))}: ${esc(dayLabel(r.peak.date, r.i))} · ${r.peak.rain_mm} ${esc(t("mm"))} · ${r.peak.risk_score}/100</div></div>
+      <button class="ghost small" type="button" data-act="fcpick" data-id="${r.a.id}"><span class="badge ${r.peak.risk_level}">${esc(t("risk_" + r.peak.risk_level))}</span></button></div>`).join("");
+}
 
 function nearestAreaId(lat, lng) {
   let best = null, bd = Infinity;
@@ -511,6 +682,9 @@ function showTab(name, scroll = false) {
   document.querySelectorAll("#panel .tab").forEach((s) => s.classList.toggle("active", s.id === "tab-" + name));
   if (name === "alerts") loadAlerts().then(markSeen);
   if (name === "settings") loadSubs();
+  if (name === "forecast") loadForecast();
+  if (name === "report") loadReports();
+  if (name === "safe") renderEmerg();
   if (name === "admin") loadAdmin();
   $("panel").scrollTop = 0;
   if (scroll && window.matchMedia("(max-width: 860px)").matches) $("panel").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -519,6 +693,7 @@ function showTab(name, scroll = false) {
 function renderAll() {
   fillSelects(); renderAreaBadge(); renderTiles(); renderMapAreas(); renderDetail(); drawChart(state.history);
   renderZoneCard(); renderSafeList(); renderBanner(); renderAlerts(); renderSubs(); renderBell();
+  renderEmerg(); renderFeed(); if (state.tab === "forecast") renderForecast();
 }
 
 document.addEventListener("click", guard(async (e) => {
@@ -532,6 +707,15 @@ document.addEventListener("click", guard(async (e) => {
   }
   if (act === "logout") { logout(); toast("✔"); }
   if (act === "login") openAuth();
+  if (act === "sharealert") {
+    const al = state.alerts.find((x) => x.id === id);
+    if (al) await shareText(t("alert_share_msg").replace("{area}", al.area_name).replace("{msg}", al["message_" + state.lang]));
+  }
+  if (act === "feedgo") {
+    const r = state.reports.find((x) => x.id === id);
+    if (r && map) { map.flyTo([r.lat, r.lng], 13, { duration: 0.8 }); $("mapWrap").scrollIntoView({ behavior: "smooth", block: "start" }); }
+  }
+  if (act === "fcpick") { $("fcA").value = id; renderForecast(); }
   if (act === "tab") showTab(b.dataset.tab, true);
 }));
 
@@ -592,10 +776,35 @@ $("subForm").addEventListener("submit", guard(async (e) => {
 }));
 
 $("notifBtn").addEventListener("click", guard(async () => {
-  if (!("Notification" in window)) throw new Error("Notifications not supported");
-  if ((await Notification.requestPermission()) === "granted") toast(t("notifs_on"));
+  if (!("Notification" in window)) throw new Error(t("notifs_unsupported"));
+  if (Notification.permission === "denied") throw new Error(t("notifs_denied"));
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error(t("notifs_denied"));
+  toast(t("notifs_on"));
+  new Notification("FloodAlert LK", { body: t("notifs_test"), icon: "/icon.svg" });   // proves it works right now
 }));
+function chanNote() {
+  const k = { sms: "sms_note", email: "email_note", push: "push_note" }[$("subChannel").value];
+  $("chanNote").textContent = k ? t(k) : "";
+}
+$("subChannel").addEventListener("change", chanNote);
 $("findSafeBtn").addEventListener("click", findSafe);
+$("fcA").addEventListener("change", renderForecast);
+$("fcB").addEventListener("change", renderForecast);
+$("feedArea").addEventListener("change", renderFeed);
+$("safeWa").addEventListener("click", guard(async () => window.open("https://wa.me/?text=" + encodeURIComponent(await composeSafe()), "_blank", "noopener")));
+$("safeSms").addEventListener("click", guard(async () => {
+  const msg = await composeSafe();
+  if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) location.href = "sms:?&body=" + encodeURIComponent(msg);
+  else { await navigator.clipboard.writeText(msg).catch(() => {}); toast(t("sms_desktop")); }   // desktops have no SMS app
+}));
+$("safeShare").addEventListener("click", guard(async () => shareText(await composeSafe())));
+$("safeCopy").addEventListener("click", guard(async () => copyText(await composeSafe())));
+
+$("liveRefresh").addEventListener("click", guard(async () => {
+  const b = $("liveRefresh"); b.classList.add("spin");
+  try { await Promise.all([loadAreas(), loadAlerts()]); } finally { b.classList.remove("spin"); }
+}));
 
 $("refreshBtn").addEventListener("click", guard(async () => {
   $("refreshBtn").disabled = true;
@@ -627,6 +836,7 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
   applyLang();
   updateOnline();
   await loadAreas();
+  loadDistricts();
   loadReports();
   loadAlerts();
   loadSubs();

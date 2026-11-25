@@ -1,6 +1,6 @@
 // FloodAlert LK service worker v5: network-first app shell, API never cached, CORS-checked tile cache.
-const SHELL = "fa-shell-v6", TILES = "fa-tiles-v6";
-const FILES = ["/", "/css/style.css", "/js/app.js", "/js/i18n.js", "/manifest.json", "/icon.svg", "/logo.svg", "/img/zone.jpg"];
+const SHELL = "fa-shell-v9", TILES = "fa-tiles-v9";
+const FILES = ["/", "/css/style.css", "/js/app.js", "/js/i18n.js", "/manifest.json", "/icon.svg", "/logo.svg", "/img/zone.jpg", "/img/street.jpg", "/data/districts.geojson"];
 const TILE_HOSTS = ["server.arcgisonline.com"];
 
 self.addEventListener("install", (e) => {

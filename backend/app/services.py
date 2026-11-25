@@ -1,6 +1,7 @@
 """Core business logic shared by the API routes and the background scheduler."""
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -12,6 +13,29 @@ from .risk import LEVEL_ORDER, alert_messages, calculate_risk, effective_rain, l
 from .weather import fetch_rainfall_bulk, fetch_river_bulk
 
 log = logging.getLogger("floodalert.services")
+FORECASTS: dict[int, list[dict]] = {}   # area_id -> next 3 days; rebuilt on every refresh (in memory)
+
+
+def project_forecast(area: Area, w, river: float | None, reports: int) -> list[dict]:
+    """Rain and projected risk for each of the next 3 days, from the hourly series Open-Meteo returned.
+    Day 0 = the next 24 hours. Risk uses the same formula as the live score (rain already fallen + still to come)."""
+    h, now = w.series, w.now
+    if not h:   # offline demo: spread the 24h forecast over 3 days
+        h = [w.last_72h / 72] * 72 + [w.forecast_24h / 24] * 24 + [w.forecast_24h * 0.8 / 24] * 24 + [w.forecast_24h * 0.6 / 24] * 24
+        now = 72
+    today = datetime.now(ZoneInfo("Asia/Colombo")).date()
+    out = []
+    for k in range(3):
+        i = now + 24 * k
+        if i + 24 > len(h):
+            break
+        past72, ahead = sum(h[max(0, i - 72):i]), sum(h[i:i + 24])
+        score, level = calculate_risk(effective_rain(past72, ahead), river, reports if k == 0 else 0, area.terrain_risk)
+        out.append({"date": (today + timedelta(days=k)).isoformat(), "rain_mm": round(ahead, 1),
+                    "risk_score": score, "risk_level": level})
+    return out
+
+
 
 
 def verified_report_count(db: Session, area_id: int, hours: int = 48) -> int:
@@ -76,6 +100,7 @@ def refresh_all(db: Session) -> list[dict]:
             level = level_for(score)
 
         backfill_history(db, area, w)
+        FORECASTS[area.id] = project_forecast(area, w, river, reports)
         previous = area.risk_level
         db.add(WeatherReading(area_id=area.id, rainfall_24h=w.last_24h, rainfall_72h=w.last_72h,
                               forecast_24h=w.forecast_24h, river_level=river, risk_score=score, source=w.source))

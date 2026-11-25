@@ -37,7 +37,7 @@ def check(name, cond, extra=""):
 
 with sync_playwright() as p:
     b = p.chromium.launch(executable_path=CHROME, headless=True, args=["--no-sandbox"]) if CHROME else p.chromium.launch(headless=True)
-    ctx = b.new_context(viewport={"width": 1280, "height": 800}, permissions=["geolocation"],
+    ctx = b.new_context(viewport={"width": 1280, "height": 800}, permissions=["geolocation", "clipboard-read", "clipboard-write"],
                         geolocation={"latitude": 7.2906, "longitude": 80.6337})
     page = ctx.new_page()
     page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
@@ -128,6 +128,33 @@ with sync_playwright() as p:
     page.click("#tabs button[data-tab=admin]"); page.click("#refreshBtn")
     page.wait_for_function("document.getElementById('toast').textContent.includes('refreshed')", timeout=15000)
     check("manual refresh works", True)
+
+    # community feed shows the report the admin just verified
+    page.click("#tabs button[data-tab=report]")
+    page.wait_for_selector("#feedList .feed", timeout=5000)
+    check("verified report appears in community feed", "Road blocked" in page.locator("#feedList").inner_text())
+    check("feed XSS payload is text", page.evaluate("window.__xss") is None and page.locator("#feedList img[src=x]").count() == 0)
+
+    # 3-day forecast + compare
+    page.click("#tabs button[data-tab=forecast]")
+    page.wait_for_selector("#fcDays .fcday", timeout=8000)
+    check("forecast shows 3 days for the district", page.locator("#fcDays .fcday").count() == 3)
+    page.select_option("#fcB", index=2)
+    page.wait_for_function("document.querySelectorAll('#fcDays .fchead').length === 2")
+    check("compare shows two districts (6 day rows)", page.locator("#fcDays .fcday").count() == 6)
+    check("forecast chart drawn", page.evaluate("!!Chart.getChart('fcChart')"))
+    check("top-5 highest risk list", page.locator("#fcTop .item").count() == 5)
+    page.screenshot(path=str(SP / "7_forecast.png"))
+
+    # emergency contacts + I'm safe
+    page.click("#tabs button[data-tab=safe]")
+    check("5 emergency numbers with tel: links", page.locator("#emergList a[href^='tel:']").count() == 5)
+    check("117 is listed", page.locator("#emergList a[href='tel:117']").count() == 1)
+    page.fill("#safeName", "Kamal"); page.click("#safeCopy")
+    page.wait_for_function("document.getElementById('toast').classList.contains('show')")
+    clip = page.evaluate("navigator.clipboard.readText()")
+    check("I'm safe message copied", "Kamal" in clip and "FloodAlert LK" in clip, clip[:60])
+    page.screenshot(path=str(SP / "8_safe_tab.png"))
 
     page.click("#tabs button[data-tab=alerts]")
     page.wait_for_selector("#alertList .item", timeout=5000)
